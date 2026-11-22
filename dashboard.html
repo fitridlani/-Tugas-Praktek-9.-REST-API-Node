@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IoT Dashboard - REST API</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Offline? Unduh chart.umd.min.js ke folder yang sama lalu ganti src menjadi "chart.umd.min.js" -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d1226; --panel: rgba(255,255,255,.055); --line: rgba(255,255,255,.10);
+      --text: #eef1ff; --muted: #97a1c6;
+      --temp: #ff7a6b; --hum: #3fd8e8; --warn: #ffbd3d; --ok: #4be3a3; --accent: #8b7bff;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif; color: var(--text); min-height: 100vh; padding: 28px 20px 40px;
+      background:
+        radial-gradient(60vw 45vh at 8% -5%, rgba(139,123,255,.35), transparent 70%),
+        radial-gradient(50vw 40vh at 100% 0%, rgba(63,216,232,.20), transparent 70%),
+        radial-gradient(45vw 40vh at 60% 110%, rgba(255,122,107,.18), transparent 70%),
+        var(--bg);
+      background-attachment: fixed;
+    }
+    .container { max-width: 1120px; margin: 0 auto; }
+
+    /* Header */
+    header { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+    h1 { font-size: 26px; font-weight: 800; letter-spacing: -.5px; }
+    h1 small { display: block; font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-top: 2px; }
+    .pills { display: flex; gap: 10px; align-items: center; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+            background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(10px); }
+    .status-badge::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .status-online { color: var(--ok); } .status-online::before { box-shadow: 0 0 0 4px rgba(75,227,163,.2); }
+    .status-offline { color: #ff8a8a; }
+
+    /* Grid bento */
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .box { background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 22px; backdrop-filter: blur(14px); }
+    .box h2 { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
+    .c4 { grid-column: span 4; } .c5 { grid-column: span 5; } .c7 { grid-column: span 7; } .c8 { grid-column: span 8; } .c12 { grid-column: span 12; }
+    .label { font-size: 13px; font-weight: 600; color: var(--muted); }
+    .num { font-size: 46px; font-weight: 800; letter-spacing: -2px; line-height: 1; }
+    .unit { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0; margin-left: 4px; }
+
+    /* Suhu gauge */
+    .hero { display: flex; align-items: center; gap: 18px; }
+    .gauge { position: relative; width: 132px; height: 132px; flex: none; }
+    .gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+    .gauge circle { fill: none; stroke-width: 11; stroke-linecap: round; }
+    .gauge .track { stroke: rgba(255,255,255,.09); }
+    .gauge .fill { stroke: var(--temp); stroke-dasharray: 339.3; stroke-dashoffset: 339.3; transition: stroke-dashoffset .6s ease, stroke .3s; }
+    .gauge .fill.hot { stroke: var(--warn); }
+    .gauge .center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+    .gauge .num { font-size: 34px; letter-spacing: -1.5px; color: var(--temp); }
+    .hero-side .label { margin-bottom: 6px; }
+    .hero-side .meta { font-size: 13px; color: var(--muted); margin-top: 8px; }
+    .hero-side .meta b { color: var(--warn); }
+
+    /* Kelembaban */
+    #kelembaban { color: var(--hum); }
+    .bar { height: 10px; border-radius: 99px; background: rgba(255,255,255,.09); margin-top: 22px; overflow: hidden; }
+    .bar i { display: block; height: 100%; width: 0; border-radius: 99px; background: var(--hum); transition: width .6s ease; }
+
+    /* Banner alert */
+    #alert { display: none; grid-column: span 12; background: rgba(255,189,61,.14); color: var(--warn); border: 1px solid rgba(255,189,61,.45);
+             border-radius: 16px; padding: 14px 18px; font-weight: 700; }
+    #alert[style*="block"] { animation: pop .35s ease; }
+    @keyframes pop { from { transform: translateY(-6px); opacity: 0; } }
+
+    /* Kontrol & input */
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .stack { display: flex; flex-direction: column; gap: 16px; }
+    .btn { padding: 12px 20px; border: 1px solid transparent; border-radius: 14px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; transition: transform .15s, background .2s; }
+    .btn:hover { transform: translateY(-2px); }
+    .btn:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .btn-on { background: var(--ok); color: #05281b; }
+    .btn-off { background: transparent; color: #ff8a8a; border-color: rgba(255,138,138,.5); }
+    .btn-set { background: var(--accent); color: #fff; }
+    input[type=number] { width: 110px; padding: 11px 14px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--text); font: inherit; font-size: 14px; }
+    .lamp { display: inline-flex; align-items: center; gap: 10px; margin-top: 16px; padding: 9px 16px; border-radius: 999px;
+            background: rgba(255,255,255,.06); border: 1px solid var(--line); font-size: 13px; font-weight: 700; color: var(--muted); transition: all .3s; }
+    .lamp i { width: 12px; height: 12px; border-radius: 50%; background: #59627f; transition: all .3s; }
+    .lamp.on { color: var(--warn); border-color: rgba(255,189,61,.5); background: rgba(255,189,61,.12); }
+    .lamp.on i { background: var(--warn); box-shadow: 0 0 12px 3px rgba(255,189,61,.7); }
+    .hint { font-size: 13px; color: var(--muted); margin-top: 12px; }
+    .hint b { color: var(--warn); font-size: 15px; }
+
+    /* Tabel */
+    .scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 11px 8px; text-align: left; font-size: 14px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 600; font-size: 13px; }
+    td:nth-child(2) { color: var(--temp); font-weight: 600; } td:nth-child(3) { color: var(--hum); font-weight: 600; }
+    tr:hover td { background: rgba(255,255,255,.04); }
+
+    /* Log */
+    #log { background: rgba(0,0,0,.35); border-radius: 14px; padding: 14px; height: 215px; overflow-y: auto; font: 12.5px/1.7 Consolas, monospace; color: #9ff0c8; }
+    #log .error { color: #ff9b9b; } #log .info { color: #8fd0ff; }
+
+    @media (max-width: 900px) { .c4, .c5, .c7, .c8 { grid-column: span 12; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>IoT Dashboard<small>Monitoring &amp; kontrol via REST API Node-RED</small></h1>
+    <div class="pills">
+      <span class="pill status-badge status-offline" id="status-badge">OFFLINE</span>
+      <span class="pill">Mode: <b id="mode">-</b></span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div id="alert"></div>
+
+    <!-- Suhu -->
+    <div class="box c4 hero">
+      <div class="gauge">
+        <svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="54"/><circle class="fill" id="gauge-fill" cx="60" cy="60" r="54"/></svg>
+        <div class="center"><div class="num"><span id="suhu">--</span></div><div class="unit" style="margin:2px 0 0">°C</div></div>
+      </div>
+      <div class="hero-side">
+        <div class="label">Suhu</div>
+        <div class="meta">Batas: <b><span id="thr-badge">--</span> °C</b></div>
+      </div>
+    </div>
+
+    <!-- Kelembaban -->
+    <div class="box c4">
+      <div class="label">Kelembaban</div>
+      <div class="num" style="margin-top:12px"><span id="kelembaban">--</span><span class="unit">%</span></div>
+      <div class="bar"><i id="hum-bar"></i></div>
+    </div>
+
+    <!-- Kontrol -->
+    <div class="box c4">
+      <h2>Kontrol Perangkat</h2>
+      <div class="row">
+        <button class="btn btn-on" onclick="kontrol('lamp','on')">Nyalakan Lampu</button>
+        <button class="btn btn-off" onclick="kontrol('lamp','off')">Matikan Lampu</button>
+      </div>
+      <div class="lamp" id="lamp"><i></i><span id="lamp-text">Lampu: menunggu data</span></div>
+      <p class="hint">Status lampu dilaporkan balik oleh perangkat.</p>
+    </div>
+
+    <!-- Grafik -->
+    <div class="box c8">
+      <h2>Grafik Real-time</h2>
+      <canvas id="chart" height="120"></canvas>
+    </div>
+
+    <!-- Threshold -->
+    <div class="box c4">
+      <h2>Batas Suhu</h2>
+      <div class="row">
+        <input type="number" id="thr-input" step="0.1" placeholder="mis. 30" aria-label="Batas suhu">
+        <button class="btn btn-set" onclick="setThreshold()">Simpan Batas</button>
+      </div>
+      <p class="hint">Batas saat ini: <b><span id="thr-now">--</span> °C</b><br>Notifikasi muncul saat suhu melewati batas.</p>
+    </div>
+
+    <!-- History -->
+    <div class="box c7">
+      <h2>10 Data Sensor Terakhir</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Waktu</th><th>Suhu (°C)</th><th>Kelembaban (%)</th></tr></thead>
+          <tbody id="history-body"><tr><td colspan="3" style="text-align:center;color:#97a1c6;">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="box c5"><h2>Log Aktivitas</h2><div id="log"></div></div>
+  </div>
+</div>
+
+<script>
+// ===== KONFIGURASI =====
+const HOST     = location.hostname || 'localhost';
+const API_BASE = `http://${HOST}:1880/api`;
+const WS_URL   = `ws://${HOST}:1880/ws/sensor`;
+const API_KEY  = 'iot-kampus-2026';   // harus sama dengan apiKey di node "Init Config"
+const MAX_POINTS = 30;
+
+const $ = id => document.getElementById(id);
+let rows = [], lastReceived = null, lastSeen = 0, currentMax = null, pollTimer = null, ws;
+
+// ===== UTILITY =====
+function log(msg, type = 'info') {
+  const el = $('log'), d = document.createElement('div');
+  d.className = type;
+  d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+async function api(path, method = 'GET', body) {
+  const res = await fetch(API_BASE + path, {
+    method,
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
+  return json;
+}
+function setBadge(online) {
+  const b = $('status-badge');
+  b.textContent = online ? 'ONLINE' : 'OFFLINE';
+  b.className = 'pill status-badge ' + (online ? 'status-online' : 'status-offline');
+}
+
+// ===== TAMPILAN GAUGE & BAR =====
+function updateVisual(d) {
+  const ratio = Math.min(Math.max((d.suhu - 20) / 20, 0), 1);          // skala 20-40 °C
+  const fill = $('gauge-fill');
+  fill.style.strokeDashoffset = 339.3 * (1 - ratio);
+  fill.classList.toggle('hot', !!d.alert);
+  $('hum-bar').style.width = Math.min(Math.max(d.kelembaban, 0), 100) + '%';
+}
+
+let lampState = null;
+function setLamp(state) {
+  $('lamp').classList.toggle('on', state === 'on');
+  $('lamp-text').textContent = 'Lampu: ' + state.toUpperCase();
+  if (lampState !== null && lampState !== state) log(`Perangkat melaporkan lampu ${state.toUpperCase()}`);
+  lampState = state;
+}
+
+// ===== CHART.JS =====
+Chart.defaults.color = '#97a1c6';
+Chart.defaults.font.family = "'Plus Jakarta Sans', 'Segoe UI', sans-serif";
+const grid = { color: 'rgba(255,255,255,.07)' };
+const chart = new Chart($('chart'), {
+  type: 'line',
+  data: { labels: [], datasets: [
+    { label: 'Suhu (°C)', data: [], borderColor: '#ff7a6b', backgroundColor: 'rgba(255,122,107,.12)', fill: true, tension: 0.35, pointRadius: 2, yAxisID: 'y' },
+    { label: 'Kelembaban (%)', data: [], borderColor: '#3fd8e8', tension: 0.35, pointRadius: 2, yAxisID: 'y1' },
+    { label: 'Batas suhu', data: [], borderColor: '#ffbd3d', borderDash: [6, 4], pointRadius: 0, yAxisID: 'y' }
+  ]},
+  options: { animation: false, responsive: true,
+    scales: { x: { grid }, y: { grid, title: { display: true, text: '°C' } },
+              y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: '%' } } } }
+});
+function renderChart() {
+  chart.data.labels = rows.map(r => new Date(r.received).toLocaleTimeString());
+  chart.data.datasets[0].data = rows.map(r => r.suhu);
+  chart.data.datasets[1].data = rows.map(r => r.kelembaban);
+  chart.data.datasets[2].data = rows.map(() => currentMax);
+  chart.update();
+}
+function renderTable() {
+  const tb = $('history-body');
+  if (rows.length === 0) { tb.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#97a1c6;">Belum ada data</td></tr>'; return; }
+  tb.innerHTML = rows.slice(-10).reverse().map(d =>
+    `<tr><td>${new Date(d.received).toLocaleTimeString()}</td><td>${Number(d.suhu)}</td><td>${Number(d.kelembaban)}</td></tr>`).join('');
+}
+
+// ===== DATA SENSOR (dipakai WebSocket maupun polling) =====
+function showAlert(on, d) {
+  const a = $('alert');
+  a.style.display = on ? 'block' : 'none';
+  if (on) a.textContent = `Peringatan: suhu ${d.suhu} °C melewati batas ${d.threshold} °C`;
+}
+function setThresholdUI(v) { currentMax = v; $('thr-now').textContent = v; $('thr-badge').textContent = v; }
+function handleSensor(d) {
+  if (!d || d.suhu === null || d.received === lastReceived) return;
+  lastReceived = d.received; lastSeen = Date.now();
+  $('suhu').textContent = d.suhu;
+  $('kelembaban').textContent = d.kelembaban;
+  if (d.threshold !== undefined) setThresholdUI(d.threshold);
+  setBadge(true); showAlert(d.alert, d); updateVisual(d);
+  if (d.lampu) setLamp(d.lampu);
+  rows.push(d); if (rows.length > MAX_POINTS) rows.shift();
+  renderChart(); renderTable();
+}
+setInterval(() => { if (lastSeen && Date.now() - lastSeen > 10000) setBadge(false); }, 2000);
+
+// ===== LOAD AWAL =====
+async function loadInitial() {
+  try {
+    const h = await api(`/history?limit=${MAX_POINTS}`);
+    rows = h.data || [];
+    if (rows.length) lastReceived = rows[rows.length - 1].received;
+    const t = await api('/threshold');
+    setThresholdUI(t.max);
+    renderChart(); renderTable();
+    log(`History dimuat dari database (${rows.length} data)`);
+  } catch (err) { log(`Gagal memuat data awal: ${err.message}`, 'error'); }
+}
+
+// ===== WEBSOCKET + FALLBACK POLLING =====
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    try { const j = await api('/suhu'); if (j.data) handleSensor(j.data); }
+    catch (err) { log(`Gagal polling: ${err.message}`, 'error'); }
+  }, 3000);
+}
+function stopPolling() { clearInterval(pollTimer); pollTimer = null; }
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => { stopPolling(); $('mode').textContent = 'WebSocket'; log('WebSocket terhubung (tanpa polling)'); };
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'sensor') handleSensor(m.data);
+    else if (m.type === 'alert') log(`NOTIFIKASI: ${m.message}`, 'error');
+  };
+  ws.onclose = () => {
+    $('mode').textContent = 'Polling'; startPolling();
+    log('WebSocket terputus, beralih ke polling 3 detik...', 'error');
+    setTimeout(connectWS, 3000);
+  };
+  ws.onerror = () => ws.close();
+}
+
+// ===== AKSI =====
+async function setThreshold() {
+  const v = parseFloat($('thr-input').value);
+  if (isNaN(v)) { log('Isi batas suhu dengan angka', 'error'); return; }
+  try {
+    const j = await api('/threshold', 'PUT', { max: v });
+    setThresholdUI(j.max); renderChart();
+    log(`Batas suhu diubah menjadi ${j.max} °C`);
+  } catch (err) { log(`Gagal set batas: ${err.message}`, 'error'); }
+}
+async function kontrol(device, action) {
+  try {
+    const j = await api('/kontrol', 'POST', { device, action });
+    log(`Perintah terkirim: ${j.sent.device} → ${j.sent.action}`);
+  } catch (err) { log(`Error kontrol: ${err.message}`, 'error'); }
+}
+
+// ===== START =====
+log('Dashboard dimulai');
+loadInitial().then(connectWS);
+</script>
+</body>
+</html>
